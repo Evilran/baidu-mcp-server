@@ -4,8 +4,8 @@
 
 A Model Context Protocol (MCP) server that provides web search capabilities through Baidu, with additional features for content fetching and parsing.
 
-<a href="https://glama.ai/mcp/servers/phcus2gcpn">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/phcus2gcpn/badge" alt="Baidu Server MCP server" />
+<a href="https://glama.ai/mcp/servers/@Evilran/baidu-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@Evilran/baidu-mcp-server/badge" alt="Baidu Server MCP server" />
 </a>
 
 ## Features
