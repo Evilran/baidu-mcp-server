@@ -1,3 +1,5 @@
+[![MseeP Badge](https://mseep.net/pr/evilran-baidu-mcp-server-badge.jpg)](https://mseep.ai/app/evilran-baidu-mcp-server)
+
 # Baidu Search MCP Server
 
 [![smithery badge](https://smithery.ai/badge/@Evilran/baidu-mcp-server)](https://smithery.ai/server/@Evilran/baidu-mcp-server)
