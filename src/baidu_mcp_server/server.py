@@ -14,11 +14,47 @@ import logging
 from functools import wraps
 from urllib.parse import urlencode
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    from curl_cffi.requests.errors import RequestsError as CurlRequestsError
+except ImportError:
+    CurlAsyncSession = None  # type: ignore[assignment]
+    CurlRequestsError = Exception  # type: ignore[assignment]
+
+# Track Playwright availability so we can fall back gracefully when missing.
+_playwright_module = None
+_playwright_import_error: Optional[BaseException] = None
+_playwright_import_checked = False
+
+
 # Dynamic import of Playwright to avoid early import errors
 def _import_playwright():
-    from playwright.async_api import async_playwright
+    global _playwright_module, _playwright_import_error, _playwright_import_checked
 
-    return async_playwright
+    if _playwright_import_checked:
+        return _playwright_module
+
+    _playwright_import_checked = True
+    try:
+        from playwright.async_api import async_playwright
+    except ModuleNotFoundError as exc:
+        _playwright_import_error = exc
+        logging.getLogger(__name__).warning(
+            "Playwright is not installed; falling back to curl_cffi transport."
+        )
+        _playwright_module = None
+    except Exception as exc:  # pragma: no cover - unexpected import failure
+        _playwright_import_error = exc
+        logging.getLogger(__name__).warning(
+            "Playwright import failed (%s); falling back to curl_cffi transport.",
+            exc,
+        )
+        _playwright_module = None
+    else:
+        _playwright_module = async_playwright
+        _playwright_import_error = None
+
+    return _playwright_module
 
 
 _browser = None
@@ -39,6 +75,8 @@ async def _ensure_browser(
     async with _browser_lock:
         if _browser is None or _browser_context is None:
             playwright_module = _import_playwright()
+            if not playwright_module:
+                return None, None
             _playwright_instance = await playwright_module().start()
             _browser = await _playwright_instance.chromium.launch()
 
@@ -510,6 +548,9 @@ class BaiduSearcher:
         params: Dict[str, Any],
         max_retries: int,
     ) -> Optional[str]:
+        if browser_context is None:
+            return await self._request_with_curl_cffi(params, max_retries)
+
         last_error: Optional[Exception] = None
         for attempt in range(1, max_retries + 1):
             page = None
@@ -539,6 +580,55 @@ class BaiduSearcher:
             logger.error("All retries exhausted when querying Baidu: %s", last_error)
         return None
 
+    async def _request_with_curl_cffi(
+        self,
+        params: Dict[str, Any],
+        max_retries: int,
+    ) -> Optional[str]:
+        if CurlAsyncSession is None:
+            logger.error("curl_cffi is not installed; unable to issue HTTP fallback requests.")
+            return None
+
+        last_error: Optional[Exception] = None
+        target_url = f"{self.BASE_URL}?{urlencode(params)}"
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                await self.rate_limiter.acquire()
+                async with CurlAsyncSession(timeout=30) as session:
+                    response = await session.get(target_url, headers=self.HEADERS)
+
+                status = getattr(response, "status_code", None)
+                if status is None:
+                    status = getattr(response, "status", None)
+                if status and status >= 400:
+                    raise RuntimeError(f"Baidu responded with status {status}")
+
+                html = response.text()
+                if not html:
+                    raise ValueError("Received empty response from Baidu")
+
+                return html
+            except CurlRequestsError as exc:
+                last_error = exc
+                logger.warning(
+                    "curl_cffi request failed on attempt %d: %s", attempt, exc
+                )
+            except Exception as exc:  # pragma: no cover - defensive catch-all
+                last_error = exc
+                logger.warning(
+                    "Unexpected curl_cffi error on attempt %d: %s", attempt, exc
+                )
+
+            await asyncio.sleep(min(5 * attempt, 15))
+
+        if last_error:
+            logger.error(
+                "All retries exhausted when querying Baidu via curl_cffi: %s",
+                last_error,
+            )
+        return None
+
     async def _perform_search(
         self,
         query: str,
@@ -564,9 +654,20 @@ class BaiduSearcher:
             user_agent=user_agent, extra_headers=extra_headers or None
         )
 
-        if not browser_context:
-            await self._log_ctx(ctx, "error", "Failed to initialize Playwright browser")
-            return []
+        if browser_context is None:
+            if CurlAsyncSession is None:
+                await self._log_ctx(
+                    ctx,
+                    "error",
+                    "Playwright is unavailable and curl_cffi is not installed; unable to execute search.",
+                )
+                return []
+
+            await self._log_ctx(
+                ctx,
+                "warning",
+                "Playwright unavailable; using curl_cffi fallback HTTP client.",
+            )
 
         while len(results) < max_results:
             params["pn"] = page * 10
