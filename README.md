@@ -2,7 +2,7 @@
 
 # Baidu Search MCP Server
 
-[![smithery badge](https://smithery.ai/badge/@Evilran/baidu-mcp-server)](https://smithery.ai/server/@Evilran/baidu-mcp-server)
+[![LightNow capabilities](https://lightnow.ai/badge/io.github.Evilran/baidu-mcp-server)](https://lightnow.ai/servers/io.github.Evilran/baidu-mcp-server)
 
 A Model Context Protocol (MCP) server that provides web search capabilities through Baidu, with additional features for content fetching and parsing.
 
